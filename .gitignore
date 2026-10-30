@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.app/
+*.tar.gz
+INSTALLATION.txt
+hosts.json
