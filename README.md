@@ -1,10 +1,10 @@
-# Ghostty Image Bridge
+# Ghostty File Bridge
 
-Paste clipboard images into remote coding agents over SSH with **⌘V** in Ghostty on macOS.
+Paste files and clipboard images into remote coding agents over SSH or mosh with **⌘V** in Ghostty on macOS.
 
-This standalone menu bar add-on uploads a PNG to the active SSH host and inserts its remote file path. Use it with agents that can read image paths, such as Claude Code, Codex, or Pi. Ordinary text paste stays native. The bridge preserves the clipboard and never presses Enter.
+This standalone menu bar add-on uploads copied files or a PNG screenshot to the active SSH host and inserts their remote file paths. Use it with agents that can read files by path, such as Claude Code, Codex, or Pi. Ordinary text paste stays native. The bridge preserves the clipboard and never presses Enter.
 
-This is an independent community project, not an official Ghostty plugin. The end-to-end workflow has been user-tested; compatibility with every agent and terminal arrangement is not guaranteed.
+This is an independent community project, not an official Ghostty plugin. The image workflow has been user-tested. General file uploads have automated tests and the Swift app passes compilation checks; file uploads and local paste forwarding still need desktop end-to-end verification; compatibility with every agent and terminal arrangement is not guaranteed.
 
 ## Requirements
 
@@ -35,41 +35,48 @@ Edit `~/.config/ghostty-image-bridge/hosts.json` to allow your exact SSH destina
 }
 ```
 
-Allow **Ghostty Image Bridge** in **System Settings → Privacy & Security → Accessibility**. If it is missing, add `~/Applications/Ghostty Image Bridge.app`. On first image paste, allow it to control Ghostty under **Automation**. These permissions must be granted separately on each Mac. Rebuilding the app may require granting them again.
+Allow **Ghostty Image Bridge** in **System Settings → Privacy & Security → Accessibility**. If it is missing, add `~/Applications/Ghostty Image Bridge.app`. On first file or image paste, allow it to control Ghostty under **Automation**. These permissions must be granted separately on each Mac. Rebuilding the app may require granting them again.
 
 ## Use
 
-1. In Ghostty, connect with `ssh you@devbox.example.com`.
+1. In Ghostty, connect with `ssh you@devbox.example.com` or `mosh you@devbox.example.com`.
 2. Open your remote coding agent.
-3. Copy an image or take a clipboard screenshot with **Control Shift Command 4**.
+3. Copy one or more files in Finder, copy an image, or take a clipboard screenshot with **Control Shift Command 4**. Any regular file type is supported.
 4. Press **⌘V** at the agent prompt. Keep that pane selected until the path appears.
 5. Submit your prompt yourself.
+
+In a local terminal, **⌘V** follows Ghostty’s normal paste behavior, including pasting copied file paths, without an SSH warning.
+
+The menu displays **Ghostty File Bridge**. The installed app remains **Ghostty Image Bridge.app**, and configuration and cache paths retain their original names for compatibility.
 
 Uploads remain in `~/.cache/clipboard-images/` on the remote host. Remove them when no longer needed.
 
 ## How it works
 
-The native Swift app intercepts image-only paste events while Ghostty is frontmost. Ghostty's AppleScript API identifies the focused pane and foreground process. A Python worker checks the SSH destination against your allowlist, uploads over SSH/SCP, rechecks the pane and process, then inserts the path through Ghostty's paste-style input API.
+The native Swift app intercepts file and image paste events while Ghostty is frontmost. Ghostty's AppleScript API identifies the focused pane and foreground process. A Python worker checks the SSH or mosh destination against your allowlist, uploads over SSH/SCP, rechecks the pane and process, then inserts the paths through Ghostty's paste-style input API.
 
-Temporary local PNGs use mode 0600 and are removed after the worker finishes. The bridge does not modify the clipboard, log keystrokes, submit prompts, or expose a network listener. The permission to intercept keyboard input is used only for the Ghostty image paste shortcut. Remote applications receive a file path, not direct access to your clipboard.
+Original files are never deleted. Temporary local PNGs use mode 0600 and are removed after the worker finishes. The bridge does not modify the clipboard, log keystrokes, submit prompts, or expose a network listener. The permission to intercept keyboard input is used only for the Ghostty file and image paste shortcut. Remote applications receive a file path, not direct access to your clipboard.
 
 ## Current limitations
 
-- Only plain `ssh user@host` is recognized. Shell aliases expanding to that exact form work.
-- Extra SSH flags, SSH config shorthand destinations, nested SSH, and local tmux around SSH are unsupported.
+- Plain `ssh user@host` and `mosh user@host` are recognized, including allowlisted SSH config aliases. Shell aliases expanding to those forms work. Mosh sessions must preserve the original destination in the standard `mosh-client -# … |` arguments.
+- Mosh uploads still require a reachable SSH/SCP connection to the same destination.
+- Extra SSH/mosh flags, remote commands, nested connections, and local tmux around SSH/mosh are unsupported.
 - Remote tmux remains behind the same SSH process, but agent-specific behavior should be checked.
-- Image pasting in local shells is intercepted and rejected; quit the bridge for Ghostty's native local image paste.
+- In local shells, the bridge forwards the original paste shortcut to Ghostty for its normal path paste behavior.
 - Changing the focused pane during upload cancels insertion; an already-uploaded file may remain remotely.
 - Network operations time out; interactive password or host-key prompts are unsupported. Establish trusted SSH access first.
-- Copied bitmap images and screenshots are the primary input. Finder file selections are not guaranteed.
+- Finder files are uploaded unchanged; multiple files insert space-separated remote paths. Remote names have a unique prefix and replace unusual characters with underscores. Folders and special files are unsupported.
+- Transfers have a 45-second timeout per command; large files may time out.
 - No automatic cleanup of remote uploads is implemented.
 
 ## Troubleshooting
 
 - **Nothing happens:** check the menu bar app and Accessibility permission. Select “Enable / Check Permissions”, or quit and reopen it.
 - **Automation error:** allow Ghostty control in Privacy & Security → Automation.
-- **Destination rejected:** check the exact `user@host` in `hosts.json` and use a plain SSH command.
+- **Destination rejected:** check the exact `user@host` in `hosts.json` and use a plain SSH or mosh command.
 - **Upload fails:** run `ssh -o BatchMode=yes you@host true`, then check SCP, connectivity, and host keys.
+- **Folders rejected:** copy regular files instead, or create an archive of the folder and copy that archive.
 - **Session changed:** keep the original pane selected and retry.
 - **Remote installation:** the app can be built over SSH, but permissions and paste verification require a desktop login.
 

@@ -7,5 +7,5 @@
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSUIElement</key><true/>
-<key>NSAppleEventsUsageDescription</key><string>Identify the active SSH pane and paste the uploaded image path into that same pane.</string>
+<key>NSAppleEventsUsageDescription</key><string>Identify the active SSH pane and paste the uploaded file paths into that same pane.</string>
 </dict></plist>

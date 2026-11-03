@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Upload to an explicitly recognized foreground SSH destination, then paste."""
-import json, os, re, shlex, subprocess, sys, uuid
+"""Upload to an explicitly recognized foreground SSH or mosh destination, then paste."""
+import ipaddress, json, os, re, shlex, subprocess, sys, uuid
 from pathlib import Path
 CONFIG = Path.home() / '.config/ghostty-image-bridge/hosts.json'
 try:
@@ -21,13 +21,29 @@ def context():
 
 def target(command):
     parts = shlex.split(command)
-    if not parts or os.path.basename(parts[0]) != 'ssh':
-        raise RuntimeError('The focused terminal is not a direct SSH session')
-    # Only plain interactive SSH connections are supported. Never infer a host
-    # from arbitrary command arguments, titles, or remote output.
-    if len(parts) != 2 or parts[1] not in HOSTS:
-        raise RuntimeError('Use plain ssh user@host with a destination listed in ~/.config/ghostty-image-bridge/hosts.json')
-    return parts[1]
+    program = os.path.basename(parts[0]) if parts else ''
+    if program == 'mosh-client':
+        # The installed mosh wrapper execs mosh-client with an informational
+        # argument: "-# <original arguments> |", followed by IP and UDP port.
+        # ps prints argv without quoting; accept only the plain invocation.
+        match = re.fullmatch(r'-# ([^\s|]+) \| (\S+) ([0-9]+)', ' '.join(parts[1:]))
+        if not match:
+            raise RuntimeError('Use plain mosh user@host; this mosh session could not be identified')
+        destination, address, port = match.groups()
+        try:
+            ipaddress.ip_address(address)
+        except ValueError:
+            raise RuntimeError('Invalid mosh server address') from None
+        if not 1 <= int(port) <= 65535:
+            raise RuntimeError('Invalid mosh server port')
+    elif program in ('ssh', 'mosh') and len(parts) == 2:
+        destination = parts[1]
+    else:
+        raise RuntimeError('The focused terminal is not a supported direct SSH or mosh session')
+    # Never infer a destination from an IP, title, or arbitrary remote output.
+    if destination.startswith('-') or destination not in HOSTS:
+        raise RuntimeError('Use plain ssh or mosh with a destination listed in ~/.config/ghostty-image-bridge/hosts.json')
+    return destination
 
 def upload(host, path):
     if host not in HOSTS:
@@ -37,25 +53,35 @@ def upload(host, path):
         'umask 077; mkdir -p "$HOME/.cache/clipboard-images" && cd "$HOME/.cache/clipboard-images" && pwd'])
     if not re.fullmatch(r'/[A-Za-z0-9_./-]+', directory):
         raise RuntimeError('Unexpected remote upload directory')
-    remote = directory + '/clipboard-' + str(uuid.uuid4()) + '.png'
+    name = re.sub(r'[^A-Za-z0-9._-]', '_', Path(path).name)[:180] or 'file'
+    remote = directory + '/' + str(uuid.uuid4()) + '-' + name
     run(['/usr/bin/scp', '-q', *opts, path, host + ':' + remote])
     return remote
 
 def main():
-    path, ident, pid = sys.argv[1:]
+    files_mode = sys.argv[1:2] == ['--files']
+    if files_mode:
+        ident, pid, *paths = sys.argv[2:]
+    else:
+        path, ident, pid = sys.argv[1:]
+        paths = [path]
     try:
+        if not paths or any(not Path(path).is_file() for path in paths):
+            raise RuntimeError('Copy regular files in Finder; folders and special files are unsupported')
         if context() != (ident, pid):
-            raise RuntimeError('Terminal focus changed; image was not sent')
+            raise RuntimeError('Terminal focus changed; files were not sent')
         command = run(['/bin/ps', '-p', pid, '-o', 'command='])
         host = target(command)
-        remote = upload(host, path)
+        remotes = [upload(host, path) for path in paths]
         if context() != (ident, pid) or run(['/bin/ps', '-p', pid, '-o', 'command=']) != command:
-            raise RuntimeError('Session changed; image uploaded to ' + remote + ' but was not pasted')
-        # No newline or Enter: the user remains in control of submitting input.
-        apple('tell application "Ghostty"\ninput text ' + json.dumps(remote + ' ') +
+            raise RuntimeError('Session changed; files uploaded to ' + ', '.join(remotes) + ' but were not pasted')
+        # Upload paths contain only shell-safe characters. Never press Enter.
+        apple('tell application "Ghostty"\ninput text ' + json.dumps(' '.join(remotes) + ' ') +
               ' to (first terminal whose id is ' + json.dumps(ident) + ')\nend tell')
     finally:
-        os.unlink(path)
+        # Finder originals belong to the user; only generated images are temporary.
+        if not files_mode:
+            os.unlink(path)
 if __name__ == '__main__':
     try:
         main()
